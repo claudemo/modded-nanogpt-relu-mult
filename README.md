@@ -1,4 +1,4 @@
-This fork has been created to explore if using ReLU(x)*ReLU(y) activation functions taking two linear combinations on their inputs might bring further improvement: [relu-mult](relu-mult)
+This fork has been created to explore if using _ReLU(x)*ReLU(y)_ activation functions taking two linear combinations on their inputs might bring further improvement: [relu-mult](relu-mult)
 
 # Modded-NanoGPT
 
