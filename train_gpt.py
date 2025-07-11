@@ -291,7 +291,7 @@ class MLP(nn.Module): # if our experiments are successful, we'll rename this cla
         self.c_fc   = CastedLinear(dim, r)
         self.c_proj = CastedLinear(pairs, dim)
         self.c_proj.weight.detach().zero_()
-        idx_i, idx_j = torch.triu_indices(r, r, device='cpu')   # moved to GPU in .to() # I don't understand the "device" parameter, if one needs it, or what should be done with it
+        idx_i, idx_j = torch.triu_indices(r, r, device='cuda')   # moved to GPU in .to() # I don't understand the "device" parameter, if one needs it, or what should be done with it
         self.register_buffer("idx_i", idx_i, persistent=False)
         self.register_buffer("idx_j", idx_j, persistent=False)
 
