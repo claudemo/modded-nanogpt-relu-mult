@@ -292,9 +292,6 @@ class MLP(nn.Module): # if our experiments are successful, we'll rename this cla
         self.c_fc   = CastedLinear(dim, r)
         self.c_proj = CastedLinear(pairs, dim)
         self.c_proj.weight.detach().zero_()
-        idx_i, idx_j = torch.triu_indices(r, r, device='cuda')   # moved to GPU in .to() # I don't understand the "device" parameter, if one needs it, or what should be done with it
-        self.register_buffer("idx_i", idx_i, persistent=False)
-        self.register_buffer("idx_j", idx_j, persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -305,9 +302,16 @@ class MLP(nn.Module): # if our experiments are successful, we'll rename this cla
 
         # Gather only the upper-triangular coordinates
         # Shape: (..., pairs)
-        hi = h[..., self.idx_i]                 # (..., pairs)
-        hj = h[..., self.idx_j]                 # (..., pairs)
-        q  = hi * hj                            # (..., pairs)
+        # Compute outer product and extract upper triangular
+        h_outer = torch.einsum('...i,...j->...ij', h, h)  # (..., r, r)
+        
+        # Extract upper triangular part more efficiently
+        mask = torch.triu(torch.ones(self.r, self.r, device=h.device, dtype=torch.bool))
+        q = h_outer[..., mask]
+
+        # According to GPT-4o:
+        #     h_outer[..., mask] uses advanced indexing: it flattens the last two dims (r, r) and selects only those entries where mask is True, i.e., the upper triangle
+        #     Result shape: (..., r*(r+1)/2) — the number of upper-triangular entries.
 
         # Project back to the embedding dimension
         return self.c_proj(q)
