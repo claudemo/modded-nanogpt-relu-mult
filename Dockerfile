@@ -21,8 +21,8 @@ RUN curl -O https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_
 RUN ln -s /usr/local/bin/python3.12 /usr/local/bin/python && \
     ln -s /usr/local/bin/pip3.12 /usr/local/bin/pip
 
-COPY requirements.txt /modded-nanogpt/requirements.txt
-WORKDIR /modded-nanogpt
+COPY requirements.txt /modded-nanogpt-relu-mult/requirements.txt
+WORKDIR /modded-nanogpt-relu-mult
 
 RUN python -m pip install --upgrade pip && \
     pip install -r requirements.txt
