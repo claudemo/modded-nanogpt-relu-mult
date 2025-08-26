@@ -355,19 +355,38 @@ class CausalSelfAttention(nn.Module):
         y = self.c_proj(y)
         return y
 
-class MLP(nn.Module):
+class MLP(nn.Module): # if our experiments are successful, we'll rename this class
     def __init__(self, dim: int):
         super().__init__()
-        hdim = 4 * dim
-        self.c_fc = CastedLinear(dim, hdim)
-        self.c_proj = CastedLinear(hdim, dim)
-        self.c_proj.weight.detach().zero_() # zero init suggested by @Grad62304977
+        r = int(2 * (2*dim)**0.5) + 1) # it might be a good idea to experiment with gradually increasing values of r
+        self.r = r
+        pairs = r * (r + 1) // 2                 # unique i ≤ j pairs
+        self.c_fc   = CastedLinear(dim, r)
+        self.c_proj = CastedLinear(pairs, dim)
+        self.c_proj.weight.detach().zero_()
 
-    def forward(self, x: Tensor):
-        x = self.c_fc(x)
-        x = F.relu(x).square() # https://arxiv.org/abs/2109.08668v2; ~1-2% better than GELU; suggested by @SKYLINEZ007 and @Grad62304977
-        x = self.c_proj(x)
-        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x : (..., dim)    →   (..., dim)
+        Works with arbitrary batch / sequence prefix.
+        """
+        h = F.relu(self.c_fc(x))                # (..., r)
+
+        # Gather only the upper-triangular coordinates
+        # Shape: (..., pairs)
+        # Compute outer product and extract upper triangular
+        h_outer = torch.einsum('...i,...j->...ij', h, h)  # (..., r, r)
+        
+        # Extract upper triangular part more efficiently
+        mask = torch.triu(torch.ones(self.r, self.r, device=h.device, dtype=torch.bool))
+        q = h_outer[..., mask]
+
+        # According to GPT-4o:
+        #     h_outer[..., mask] uses advanced indexing: it flattens the last two dims (r, r) and selects only those entries where mask is True, i.e., the upper triangle
+        #     Result shape: (..., r*(r+1)/2) — the number of upper-triangular entries.
+
+        # Project back to the embedding dimension
+        return self.c_proj(q)
 
 class Block(nn.Module):
     def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int):
