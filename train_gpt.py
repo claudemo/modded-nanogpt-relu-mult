@@ -358,7 +358,7 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module): # if our experiments are successful, we'll rename this class
     def __init__(self, dim: int):
         super().__init__()
-        r = int(2 * (2*dim)**0.5) + 1) # it might be a good idea to experiment with gradually increasing values of r
+        r = int(2 * (2*dim)**0.5 + 1) # it might be a good idea to experiment with gradually increasing values of r
         self.r = r
         pairs = r * (r + 1) // 2                 # unique i ≤ j pairs
         self.c_fc   = CastedLinear(dim, r)
@@ -552,7 +552,7 @@ def distributed_data_generator(filename_pattern: str, batch_size: int, align_to_
     local_batch_size = batch_size // world_size
     file_iter = iter(files) # use itertools.cycle(files) instead if you want to do multi-epoch training
     tokens, pos = _load_data_shard(next(file_iter)), 0
-    max_batch_span = 2 * batch_size if align_to_bos else batch_size # provide buffer to handle samples up to length local_batch_size
+    max_batch_span = 8 * batch_size if align_to_bos else 4 * batch_size # provide buffer to handle samples up to length local_batch_size
     while True:
         if pos + max_batch_span + 1 >= len(tokens):
             tokens, pos = _load_data_shard(next(file_iter)), 0
@@ -590,7 +590,7 @@ args = Hyperparameters()
 # torchrun sets these env variables
 rank = int(os.environ["RANK"])
 world_size = int(os.environ["WORLD_SIZE"])
-assert world_size == 8 # this code is designed for 8xH100
+# assert world_size == 8 # this code is designed for 8xH100
 assert torch.cuda.is_available()
 device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
