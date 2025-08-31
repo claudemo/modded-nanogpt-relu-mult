@@ -90,3 +90,7 @@ class MLP(nn.Module): # if our experiments are successful, we'll rename this cla
         # Project back to the embedding dimension
         return self.c_proj(q)
 ```
+
+This does trigger `Torch.OutOfMemoryError: CUDA out of memory`.
+
+I don't quite understand it; it seems that what I allocate here ought to be rather small compared to what's allocated in the attention layers.
