@@ -565,7 +565,7 @@ class Hyperparameters:
     cooldown_frac = 0.45 # fraction of training spent cooling down the learning rate
     # evaluation and logging
     val_loss_every = 125 # every how many steps to evaluate val loss? 0 for only at the end
-    save_checkpoint = False
+    save_checkpoint = True
 args = Hyperparameters()
 
 # torchrun sets these env variables
