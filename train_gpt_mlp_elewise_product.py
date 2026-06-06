@@ -650,6 +650,7 @@ def get_window_size_blocks(step: int):
     window_size = next_multiple_of_n(1728 * x, n=128)
     return get_window_size_blocks_helper(window_size)
 
+raw_model: nn.Module = model
 model: nn.Module = torch.compile(model, dynamic=False)
 
 ########################################
@@ -705,11 +706,17 @@ for step in range(train_steps + 1):
         del val_loader
         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
-        if master_process and hasattr(model.blocks[0].mlp, 'c_fc_a'):
+        if master_process and hasattr(raw_model.blocks[0].mlp, 'c_fc_a'):
             sims = [F.cosine_similarity(b.mlp.c_fc_a.weight.flatten().unsqueeze(0),
                                         b.mlp.c_fc_b.weight.flatten().unsqueeze(0)).item()
-                    for b in model.blocks]
+                    for b in raw_model.blocks]
             print0(f"  W_a-W_b similarity: {sum(sims)/len(sims):.4f}", console=True)
+            with torch.no_grad():
+                na = [b.mlp.c_fc_a.weight.pow(2).sum().item() for b in raw_model.blocks]
+                nb = [b.mlp.c_fc_b.weight.pow(2).sum().item() for b in raw_model.blocks]
+            mean_diff = sum(a - b for a, b in zip(na, nb)) / len(na)
+            mean_rel = sum((a - b) / max(a, 1e-12) for a, b in zip(na, nb)) / len(na)
+            print0(f"  norm_sq_diff(Wa,Wb): mean={mean_diff:.4e} mean_relative={mean_rel:.4f}", console=True)
         model.train()
         # start the clock again
         torch.cuda.synchronize()
