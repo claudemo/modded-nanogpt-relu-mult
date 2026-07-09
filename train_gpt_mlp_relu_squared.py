@@ -355,37 +355,20 @@ class CausalSelfAttention(nn.Module):
         y = self.c_proj(y)
         return y
 
-# --- init-alignment sweep knobs (env vars; defaults reproduce previous behavior) ---
-# INIT_ALIGN: target cos(W_a, W_b) at init. 0.0 = independent (default; random init
-#             is already near-orthogonal in high dim), 0.999 = near-tied. Do not use
-#             exactly 1.0: identical branches get identical gradients by symmetry and
-#             can never untie under deterministic training.
-# MLP_HDIM:   hidden width. 0 = 4*dim = 3072 (default, iso-width);
-#             2048 = (8/3)*dim -> 3*d*hdim = 16*d^2 params/FLOPs per layer,
-#             exactly matching the relu^2 baseline (iso-FLOP comparison).
-INIT_ALIGN = float(os.environ.get("INIT_ALIGN", "0.0"))
-MLP_HDIM = int(os.environ.get("MLP_HDIM", "0"))
-
 class MLP(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        hdim = MLP_HDIM if MLP_HDIM > 0 else 4 * dim
-        self.c_fc_a = CastedLinear(dim, hdim)
-        self.c_fc_b = CastedLinear(dim, hdim)
+        hdim = 4 * dim
+        self.c_fc = CastedLinear(dim, hdim)
         self.c_proj = CastedLinear(hdim, dim)
-        self.c_proj.weight.detach().zero_()
-        if INIT_ALIGN > 0.0:
-            # W_b <- alpha*W_a + sqrt(1-alpha^2)*W_b. W_b's own init is an independent
-            # iid draw, so it serves as the noise term: E[cos(W_a,W_b)] = alpha and
-            # E||W_b||^2 is preserved (fair comparison across the sweep).
-            with torch.no_grad():
-                a = min(INIT_ALIGN, 1.0)
-                self.c_fc_b.weight.mul_((1.0 - a * a) ** 0.5).add_(self.c_fc_a.weight, alpha=a)
+        self.c_proj.weight.detach().zero_() # zero init suggested by @Grad62304977
 
     def forward(self, x: Tensor):
-        x1 = F.relu(self.c_fc_a(x))
-        x2 = F.relu(self.c_fc_b(x))
-        return self.c_proj(x1 * x2)
+        x = self.c_fc(x)
+        x = F.relu(x).square() # https://arxiv.org/abs/2109.08668v2; ~1-2% better than GELU; suggested by @SKYLINEZ007 and @Grad62304977
+        x = self.c_proj(x)
+        return x
+        
 
 class Block(nn.Module):
     def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int):
@@ -583,7 +566,7 @@ class Hyperparameters:
     cooldown_frac = 0.45 # fraction of training spent cooling down the learning rate
     # evaluation and logging
     val_loss_every = 125 # every how many steps to evaluate val loss? 0 for only at the end
-    save_checkpoint = False
+    save_checkpoint = True
 args = Hyperparameters()
 
 # torchrun sets these env variables
@@ -723,19 +706,6 @@ for step in range(train_steps + 1):
         del val_loader
         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
-        if master_process and hasattr(model.blocks[0].mlp, 'c_fc_a'):
-            sims = [F.cosine_similarity(b.mlp.c_fc_a.weight.flatten().unsqueeze(0),
-                                        b.mlp.c_fc_b.weight.flatten().unsqueeze(0)).item()
-                    for b in model.blocks]
-            print0(f"  W_a-W_b similarity: {sum(sims)/len(sims):.4f}", console=True)
-            # machine-readable per-layer record; collect with:  grep -h '^BRANCHSTATS' logs/*.txt
-            import json as _json
-            print0("BRANCHSTATS " + _json.dumps({
-                "step": step, "init_align": INIT_ALIGN,
-                "hdim": model.blocks[0].mlp.c_fc_a.weight.size(0),
-                "val_loss": round(val_loss.item(), 6),
-                "cos_per_layer": [round(s, 6) for s in sims],
-            }))
         model.train()
         # start the clock again
         torch.cuda.synchronize()
